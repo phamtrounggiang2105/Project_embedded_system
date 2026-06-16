@@ -1,41 +1,41 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include <stdint.h>
 #include <Arduino.h>
 
-// CẤU HÌNH MẠNG
-#define WIFI_SSID           "Yanne"
-#define WIFI_PASSWORD       "09102105"
-#define BOT_TOKEN           "_"   // Hiện tại chưa cập nhật
-#define CHAT_ID             "ID"  // Hiện tại chưa cập nhật
+// THÔNG SỐ KẾT NỐI
+#define BLYNK_TEMPLATE_ID   "TMPL_XXXXX"       // Thay bằng ID trên web Blynk
+#define BLYNK_TEMPLATE_NAME "Smart Door Lock"
+#define BLYNK_AUTH_TOKEN    "Thay_Bang_Token_Blynk_Cua_Ban"
 
-// define pin
-// Thẻ từ RC525
+#define WIFI_SSID           "Ten_WiFi_Nha_Ban"
+#define WIFI_PASS           "Mat_Khau_WiFi"
+
+// ĐỊNH NGHĨA CHÂN GPIO
+// SPI & RFID RC522 (SCK=18, MISO=19, MOSI=23)
 #define RFID_SS_PIN         5
 #define RFID_RST_PIN        4
 
-// Keypad 4x3
+// Keypad 3x4
 #define KEYPAD_R1           13
 #define KEYPAD_R2           12
 #define KEYPAD_R3           14
 #define KEYPAD_R4           27
-#define KEYPAD_C1           26  //Ngon
+#define KEYPAD_C1           26
 #define KEYPAD_C2           25
 #define KEYPAD_C3           33
 
-// Ngoại vi khác
-#define DOOR_SENSOR_PIN     15
+// Cơ cấu chấp hành & Cảnh báo
 #define RELAY_PIN           17
-#define BUZZER_PIN          2
+#define BUZZER_PIN          15
 
-// CẤU HÌNH LOGIC
-#define RELAY_ON            HIGH 
-#define RELAY_OFF           LOW
+// THÔNG SỐ HỆ THỐNG 
+#define MAX_PASSWORD_LEN    6       // Độ dài mật khẩu tối đa
+#define MAX_WRONG_ATTEMPTS  3       // Số lần sai tối đa trước khi khóa
+#define LOCKOUT_TIME_MS     30000   // Thời gian phạt (30 giây)
+#define UNLOCK_TIME_MS      4000    // Thời gian mở chốt (4 giây)
 
-#define DOOR_OPEN_TIME_MS   3000  // Thời gian mở chốt
-#define DOOR_ALARM_DELAY_MS 10000 // Thời gian trước khi báo động (10 giây)
+#define OLED_I2C_ADDRESS    0x3C    // Địa chỉ I2C của màn hình SH110x
 
-// Mật khẩu tĩnh
-const String MASTER_PASSWORD = "123"; 
-
-#endif
+#endif // CONFIG_H
