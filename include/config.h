@@ -19,7 +19,7 @@
 #define KEYPAD_R2           12
 #define KEYPAD_R3           14
 #define KEYPAD_R4           27
-#define KEYPAD_C1           26
+#define KEYPAD_C1           26  //Ngon
 #define KEYPAD_C2           25
 #define KEYPAD_C3           33
 
