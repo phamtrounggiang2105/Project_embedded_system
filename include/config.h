@@ -5,7 +5,7 @@
 #include <Arduino.h>
 
 // THÔNG SỐ KẾT NỐI
-#define BLYNK_TEMPLATE_ID   "TMPL_XXXXX"       // Thay bằng ID trên web Blynk
+#define BLYNK_TEMPLATE_ID   "TMPL_XXXXX"       // ID web Blynk
 #define BLYNK_TEMPLATE_NAME "Smart Door Lock"
 #define BLYNK_AUTH_TOKEN    "Token_Blynk"
 
@@ -36,6 +36,6 @@
 #define LOCKOUT_TIME_MS     30000   // Thời gian phạt (30 giây)
 #define UNLOCK_TIME_MS      4000    // Thời gian mở chốt (4 giây)
 
-#define OLED_I2C_ADDRESS    0x3C    // Địa chỉ I2C của màn hình SH110x
+#define OLED_I2C_ADDRESS    0x3C    // Địa chỉ I2C của màn hình
 
 #endif // CONFIG_H
