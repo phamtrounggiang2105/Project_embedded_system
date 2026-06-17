@@ -9,8 +9,8 @@
 #define BLYNK_TEMPLATE_NAME "Smart Door Lock"
 #define BLYNK_AUTH_TOKEN    "Thay_Bang_Token_Blynk_Cua_Ban"
 
-#define WIFI_SSID           "Ten_WiFi_Nha_Ban"
-#define WIFI_PASS           "Mat_Khau_WiFi"
+#define WIFI_SSID           "Yanne"
+#define WIFI_PASS           "09102105"
 
 // ĐỊNH NGHĨA CHÂN GPIO
 // SPI & RFID RC522 (SCK=18, MISO=19, MOSI=23)
