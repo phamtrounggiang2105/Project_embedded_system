@@ -8,7 +8,7 @@
 #include <Preferences.h>
 #include <BlynkSimpleEsp32.h>
 
-// ================= KHỞI TẠO ĐỐI TƯỢNG =================
+// KHỞI TẠO ĐỐI TƯỢNG
 MFRC522 rfid(RFID_SS_PIN, RFID_RST_PIN);
 Adafruit_SH1106G display(128, 64, &Wire, -1);
 Preferences preferences;
@@ -25,7 +25,7 @@ static uint8_t rowPins[ROWS] = {KEYPAD_R1, KEYPAD_R2, KEYPAD_R3, KEYPAD_R4};
 static uint8_t colPins[COLS] = {KEYPAD_C1, KEYPAD_C2, KEYPAD_C3};
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
-// ================= QUẢN LÝ TRẠNG THÁI (Ganssle Guideline) =================
+// QUẢN LÝ TRẠNG THÁI 
 // Gom các biến toàn cục vào một struct để dễ quản lý bộ nhớ và tránh phân mảnh
 typedef struct {
     char current_input[MAX_PASSWORD_LEN + 1];
@@ -46,7 +46,7 @@ static SystemState sys_state = {
     "", 0, "123456", 0, false, 0, false, 0, true
 };
 
-// ================= HÀM HIỂN THỊ OLED =================
+// HÀM HIỂN THỊ OLED
 static void refreshDisplay(const char* line1, const char* line2) {
     display.clearDisplay();
     display.setTextSize(1);
@@ -72,7 +72,7 @@ static void renderInputScreen() {
     refreshDisplay("Nhap Mat Khau:", hidden_pass);
 }
 
-// ================= HÀM TIỆN ÍCH (Không dùng delay block luồng) =================
+// HÀM TIỆN ÍCH (Không dùng delay block luồng)
 static void beep(uint8_t times) {
     // Dùng vòng lặp siêu nhỏ không ảnh hưởng lớn đến luồng
     for (uint8_t i = 0; i < times; i++) {
@@ -119,7 +119,7 @@ static void checkWrongAttempts() {
     }
 }
 
-// ================= BLYNK IOT (Mở cửa & Đổi mật khẩu từ xa) =================
+// BLYNK IOT Mở cửa bằng mật khẩu từ xa
 // Nút nhấn mở cửa (Virtual Pin V0)
 BLYNK_WRITE(V0) {
     if (param.asInt() == 1 && !sys_state.is_locked_out) {
@@ -139,7 +139,7 @@ BLYNK_WRITE(V1) {
     }
 }
 
-// ================= SETUP HỆ THỐNG =================
+// SETUP HỆ THỐNG
 void setup() {
     // 1. Cấu hình phần cứng
     pinMode(RELAY_PIN, OUTPUT);
@@ -167,12 +167,12 @@ void setup() {
     beep(2); // Báo hiệu sẵn sàng
 }
 
-// ================= VÒNG LẶP CHÍNH =================
+// VÒNG LẶP CHÍNH
 void loop() {
     Blynk.run(); // Duy trì kết nối IoT (Bắt buộc phải chạy liên tục)
     uint32_t current_time = millis();
 
-    // --- XỬ LÝ TRẠNG THÁI PHẠT (ANTI-BRUTE FORCE) ---
+    // XỬ LÝ TRẠNG THÁI PHẠT (ANTI-BRUTE FORCE)
     if (sys_state.is_locked_out) {
         if (current_time - sys_state.lockout_start_time >= LOCKOUT_TIME_MS) {
             sys_state.is_locked_out = false;
@@ -192,7 +192,7 @@ void loop() {
         return; // Chặn toàn bộ thao tác nhập liệu bên dưới
     }
 
-    // --- XỬ LÝ TRẠNG THÁI MỞ CỬA (NON-BLOCKING RELAY) ---
+    // XỬ LÝ TRẠNG THÁI MỞ CỬA (NON-BLOCKING RELAY)
     if (sys_state.is_door_unlocked) {
         if (current_time - sys_state.unlock_start_time >= UNLOCK_TIME_MS) {
             digitalWrite(RELAY_PIN, LOW); // Nhả Relay để lò xo đóng chốt
@@ -202,7 +202,7 @@ void loop() {
         return; // Đang mở cửa thì không cần nhận thêm phím
     }
 
-    // --- CẬP NHẬT MÀN HÌNH CHỜ ---
+    // CẬP NHẬT MÀN HÌNH CHỜ
     if (sys_state.update_display) {
         if (sys_state.input_length == 0) {
             refreshDisplay("Smart Lock", "Moi quet/nhap");
@@ -212,7 +212,7 @@ void loop() {
         sys_state.update_display = false;
     }
 
-    // --- XỬ LÝ KEYPAD ---
+    // XỬ LÝ KEYPAD
     char key = keypad.getKey();
     if (key) {
         beep(1);
@@ -235,7 +235,7 @@ void loop() {
             memset(sys_state.current_input, 0, sizeof(sys_state.current_input));
             sys_state.update_display = true;
         } else {
-            // Nhập số (Kiểm tra chống tràn mảng)
+            // Nhập số 
             if (sys_state.input_length < MAX_PASSWORD_LEN) {
                 sys_state.current_input[sys_state.input_length] = key;
                 sys_state.input_length++;
@@ -245,7 +245,7 @@ void loop() {
         }
     }
 
-    // --- XỬ LÝ RFID ---
+    // XỬ LÝ RFID
     if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
         String uid_str = "";
         for (uint8_t i = 0; i < rfid.uid.size; i++) {
