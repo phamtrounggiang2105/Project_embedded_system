@@ -7,7 +7,7 @@
 // THÔNG SỐ KẾT NỐI
 #define BLYNK_TEMPLATE_ID   "TMPL_XXXXX"       // Thay bằng ID trên web Blynk
 #define BLYNK_TEMPLATE_NAME "Smart Door Lock"
-#define BLYNK_AUTH_TOKEN    "Thay_Bang_Token_Blynk_Cua_Ban"
+#define BLYNK_AUTH_TOKEN    "Token_Blynk"
 
 #define WIFI_SSID           "Yanne"
 #define WIFI_PASS           "09102105"
