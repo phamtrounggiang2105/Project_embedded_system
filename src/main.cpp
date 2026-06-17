@@ -141,25 +141,25 @@ BLYNK_WRITE(V1) {
 
 // SETUP HỆ THỐNG
 void setup() {
-    // 1. Cấu hình phần cứng
+    // Cấu hình phần cứng
     pinMode(RELAY_PIN, OUTPUT);
     pinMode(BUZZER_PIN, OUTPUT);
     digitalWrite(RELAY_PIN, LOW); // Đảm bảo chốt đang khóa
     digitalWrite(BUZZER_PIN, LOW);
 
-    // 2. Khởi tạo OLED
+    // Khởi tạo OLED
     display.begin(OLED_I2C_ADDRESS, true);
     refreshDisplay("He Thong", "Khoi dong...");
 
-    // 3. Khởi tạo SPI & RFID
+    // Khởi tạo SPI & RFID
     SPI.begin();
     rfid.PCD_Init();
 
-    // 4. Đọc mật khẩu từ EEPROM (Preferences)
+    // Đọc mật khẩu từ EEPROM (Preferences)
     preferences.begin("smartlock", false);
     sys_state.master_password = preferences.getString("pwd", "123456");
 
-    // 5. Kết nối Blynk & WiFi
+    // Kết nối Blynk & WiFi
     refreshDisplay("WiFi", "Ket noi...");
     Blynk.begin(BLYNK_AUTH_TOKEN, WIFI_SSID, WIFI_PASS);
     
