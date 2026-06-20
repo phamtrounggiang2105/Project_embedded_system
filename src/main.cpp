@@ -99,15 +99,24 @@ uint8_t allowAccess = 0;
 static uint8_t k = 0;
 
 // Các hàm chính
-void checkRFID(void); // Hàm check thẻ RFID khi quét vào module MFRC522
-                      // Nếu thẻ hợp lệ sẽ mở cửa
-void removeCard(void); // Hàm xóa thẻ RFID đã thêm vào hệ thống
-void addCard(void);   // Hàm thêm thẻ mới vào hệ thống
-                      // Khi nhập master hoặc nhập đúng password, thẻ mới có thể thêm vào
-void insertCardMaster(void); // Hàm đổi thẻ master
-                             // Thẻ master chỉ có duy nhất 1 thẻ
-void changePasswordFunc(void); // Hàm đổi mật khẩu
-                               //  // Khi nhập master hoặc nhập đúng password, mật khẩu mới mới có thể đổi
+void checkRFID(void);
+void removeCard(void);
+void addCard(void);
+void insertCardMaster(void);
+void changePasswordFunc(void);
+void checkButton(void);
+void handle_button(void);
+void release_button(void);
+void COI_beep(void);
+uint8_t readRFIDinBUFFER(void);
+void checkBackHome(void);
+void autoReturn(void);
+void saveIDtoEEP(uint32_t valueID, uint8_t positionID);
+void saveIDtoBUFF(void);
+void clearIDinEEP(uint8_t positionID);
+void savePWtoEEP(uint32_t valuePASS);
+void savePASStoBUFF(void);
+uint32_t convertPassToNumber(void);
 
 void setup()
 {
@@ -511,18 +520,18 @@ uint8_t readRFIDinBUFFER()
 {
     uint8_t check_ID = 0;
     
-    if ( ! mfrc522.PICC_IsNewCardPresent()) 
-        return;
+    if ( ! mfrc522.PICC_IsNewCardPresent())
+        return 0;
     if ( ! mfrc522.PICC_ReadCardSerial())
-        return;
+        return 0;
     else
         COI_beep();
-    
+
     for (byte i = 0; i < mfrc522.uid.size; i++) {
         uidDecTemp = mfrc522.uid.uidByte[i];
         uidDec = uidDec*256+uidDecTemp;
-    } 
-   
+    }
+
     mfrc522.PICC_HaltA();
     for(uint16_t i = 0; i < MAX_BUFF; i++)
     {
