@@ -1,41 +1,12 @@
-
-/*
-  Code khóa cửa RFID
-  
-  Các linh kiện : thẻ RFID, KEYPAD, KIT ARDUINO NANO 3.0, LCD1602, CÒI CHIP, RELAY
-  
-  BANLINHKIEN.COM
-
-  04/04/2023
-
-*/
-
 #include <LiquidCrystal.h>    // Thu vien LCD
 #include <EEPROM.h>
 #include <SPI.h>
-#include <MFRC522.h>          // thu vien "RFID".
+#include <MFRC522.h>          // thu vien RFID
 #include "Adafruit_Keypad.h"  // thu vien Keypad
 #include <string.h>
 #include <avr/wdt.h>
 
 
-
-
-/*
-Ket noi voi Arduino Uno hoac Mega
- ----------------------------------------------------- Nicola Coppola
- * Pin layout should be as follows:
- * Signal     Pin              Pin               Pin
- *            Arduino Uno      Arduino Mega      MFRC522 board
- * ------------------------------------------------------------
- * Reset      9                5                 RST
- * SPI SS     10               53                SDA
- * SPI MOSI   11               51                MOSI
- * SPI MISO   12               50                MISO
- * SPI SCK    13               52                SCK
- 
- */
- // Khai báo chân kết nối với module RFID MFRC522
 #define SS_PIN 10
 #define RST_PIN 9
 #define BUTTON  0 // RX PIN
@@ -51,9 +22,7 @@ byte bCounter, readBit;
 unsigned long ticketNumber;
 
 
-
 // Khai báo chân kết nối LCD
-// Create An LCD Object. Signals: [ RS, EN, D4, D5, D6, D7 ]
 LiquidCrystal My_LCD(8, 7, 6, 5, 4, 3);
 
 
@@ -129,15 +98,6 @@ uint8_t countCheck = 1;
 uint8_t allowAccess = 0;
 static uint8_t k = 0;
 
-/*
-  Hướng dẫn sử dụng chức năng:
-  Nhập đúng thẻ master, hoặc mật khẩu trong khoảng 5s sau đó nhấn các phím sẽ có các chức năng khác nhau như sau:
-    ****  thêm thẻ mới  
-    0000  xóa thẻ trong hệ thống
-    #### đổi thẻ master
-    8888 đổi mật khẩu
-  Nhấn phím # khi ở bất kì mode nào để trở về màn hình chính
-*/
 // Các hàm chính
 void checkRFID(void); // Hàm check thẻ RFID khi quét vào module MFRC522
                       // Nếu thẻ hợp lệ sẽ mở cửa
@@ -862,12 +822,6 @@ void changePasswordFunc()
              }
              if(count > 5)
              {
-                 //  Serial.println(passwordChange2);
-                 //  Serial.println("sfdfsdfsdfsdfsdf");
-            //      My_LCD.setCursor(count + 6 , 1);
-            ////      My_LCD.print((char)e.bit.KEY);
-            //      My_LCD.setCursor(count + 7 , 1);
-             //     My_LCD.print("   ");
                   delay(50);
                   
                   if(strcmp(passwordChange1, passwordChange2) == 0)
@@ -880,12 +834,6 @@ void changePasswordFunc()
                         savePWtoEEP(valueCV);
                         delay(100);
                         savePASStoBUFF(); 
-                     //  Serial.println(valueCV);   
-                     //  Serial.println("value: ");
-                     //  Serial.println( EEPROM.read(252));
-                     //  Serial.println( EEPROM.read(253));
-                     //  Serial.println( EEPROM.read(254));
-                     //  Serial.println(password);
                         
                         My_LCD.clear();
                         My_LCD.setCursor(3, 0);
@@ -966,12 +914,6 @@ void saveIDtoEEP(uint32_t valueID, uint8_t positionID)
 void saveIDtoBUFF()
 {
     // Dia chi lưu thẻ RFID, mỗi 5 ô nhớ lưu 1 ID CARD
-    // Ví dụ thẻ có ID : 1234567891
-    // EEPROM 0 : 91
-    // EEPROM 1 : 78
-    // EEPROM 2 : 56
-    // EEPROM 3 : 34
-    // EEPROM 4 : 12
    uint32_t a,b,c,d,e;
    for(uint8_t i =0; i < MAX_BUFF; i++)
    { 
@@ -1005,9 +947,6 @@ void savePWtoEEP(uint32_t valuePASS)
     EEPROM.write(252, e);
     EEPROM.write(253, d);
     EEPROM.write(254, c);
-  //  Serial.println( e);
-  //  Serial.println( d);
-  //  Serial.println( c);
 }
 
 void savePASStoBUFF()
