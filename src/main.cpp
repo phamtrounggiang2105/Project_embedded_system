@@ -1,265 +1,1032 @@
-#include "config.h"
-#include <Wire.h>
+
+/*
+  Code khóa cửa RFID
+  
+  Các linh kiện : thẻ RFID, KEYPAD, KIT ARDUINO NANO 3.0, LCD1602, CÒI CHIP, RELAY
+  
+  BANLINHKIEN.COM
+
+  04/04/2023
+
+*/
+
+#include <LiquidCrystal.h>    // Thu vien LCD
+#include <EEPROM.h>
 #include <SPI.h>
-#include <MFRC522.h>
-#include <Keypad.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SH110X.h>
-#include <Preferences.h>
-#include <BlynkSimpleEsp32.h>
+#include <MFRC522.h>          // thu vien "RFID".
+#include "Adafruit_Keypad.h"  // thu vien Keypad
+#include <string.h>
+#include <avr/wdt.h>
 
-// KHỞI TẠO ĐỐI TƯỢNG
-MFRC522 rfid(RFID_SS_PIN, RFID_RST_PIN);
-Adafruit_SH1106G display(128, 64, &Wire, -1);
-Preferences preferences;
 
-// Cấu hình Keypad 3x4
-static const uint8_t ROWS = 4;
-static const uint8_t COLS = 3;
-static char keys[ROWS][COLS] = {
-    {'1', '2', '3'},
-    {'4', '5', '6'},
-    {'7', '8', '9'},
-    {'*', '0', '#'}};
-static uint8_t rowPins[ROWS] = {KEYPAD_R1, KEYPAD_R2, KEYPAD_R3, KEYPAD_R4};
-static uint8_t colPins[COLS] = {KEYPAD_C1, KEYPAD_C2, KEYPAD_C3};
-Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
-// QUẢN LÝ TRẠNG THÁI 
-// Gom các biến toàn cục vào một struct để dễ quản lý bộ nhớ và tránh phân mảnh
-typedef struct {
-    char current_input[MAX_PASSWORD_LEN + 1];
-    uint8_t input_length;
-    String master_password;
-    
-    uint8_t wrong_attempts;
-    bool is_locked_out;
-    uint32_t lockout_start_time;
-    
-    bool is_door_unlocked;
-    uint32_t unlock_start_time;
-    
-    bool update_display;
-} SystemState;
 
-static SystemState sys_state = {
-    "", 0, "123456", 0, false, 0, false, 0, true
-};
+/*
+Ket noi voi Arduino Uno hoac Mega
+ ----------------------------------------------------- Nicola Coppola
+ * Pin layout should be as follows:
+ * Signal     Pin              Pin               Pin
+ *            Arduino Uno      Arduino Mega      MFRC522 board
+ * ------------------------------------------------------------
+ * Reset      9                5                 RST
+ * SPI SS     10               53                SDA
+ * SPI MOSI   11               51                MOSI
+ * SPI MISO   12               50                MISO
+ * SPI SCK    13               52                SCK
+ 
+ */
+ // Khai báo chân kết nối với module RFID MFRC522
+#define SS_PIN 10
+#define RST_PIN 9
+#define BUTTON  0 // RX PIN
+MFRC522 mfrc522(SS_PIN, RST_PIN);   
+#define MAX_BUFF 50    
+uint32_t ID_CARD_PASS[MAX_BUFF];
+uint32_t uidDecTemp = 0;
+uint32_t uidDec = 0;
 
-// HÀM HIỂN THỊ OLED
-static void refreshDisplay(const char* line1, const char* line2) {
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SH110X_WHITE);
+
     
-    // Căn giữa dòng 1 (Tiêu đề)
-    display.setCursor(0, 10);
-    display.println(line1);
-    
-    // Hiển thị dòng 2 (Nội dung / Mật khẩu)
-    display.setTextSize(2);
-    display.setCursor(0, 35);
-    display.println(line2);
-    
-    display.display();
+byte bCounter, readBit;
+unsigned long ticketNumber;
+
+
+
+// Khai báo chân kết nối LCD
+// Create An LCD Object. Signals: [ RS, EN, D4, D5, D6, D7 ]
+LiquidCrystal My_LCD(8, 7, 6, 5, 4, 3);
+
+
+// Khai báo chân kết nối KEYPAD 3x4
+#define KEYPAD_PID3845
+#define C3    A1
+#define C2    A2
+#define C1    A3
+#define R4    A4
+#define R3    A5
+#define R2    A6
+#define R1    A7
+#include "keypad_config.h"
+Adafruit_Keypad customKeypad = Adafruit_Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+
+
+//
+#define KHOA      2
+#define COI       A0
+#define KHOA_ON   1
+#define KHOA_OFF  0
+#define COI_ON    1
+#define COI_OFF   0
+
+
+
+typedef enum
+{
+   IDLE_MODE,
+   WAIT_CLOSE,
+   ADDCARD_MODE,
+   REMOVECARD_MODE,
+   CHANGE_MASTER_CARD,
+   CHANGE_PASSWORD,
+   LOCK_1MIN
+}MODE;
+uint8_t modeRun = IDLE_MODE;
+
+char password[7] = "111111";
+char passwordEnter[7] = {0}; 
+char passwordCard[6] = {0}; 
+char passwordChange1[7] = {0}; 
+char passwordChange2[7] = {0};
+uint8_t count = 0;
+uint8_t countError = 0;
+uint8_t stateLock = 0;
+uint8_t timeClose = 1;
+uint32_t timeMillisAUTO=0;
+uint32_t timeMillisRST = 0;
+keypadEvent e;
+
+
+
+typedef enum
+{
+   CHECK_CARD,
+   ADD_CARD
+}ADDCARD;
+typedef enum
+{
+   CHECK_CARD_RM,
+   REMOVE_CARD_RM
+}REMOVECARD;
+typedef enum
+{
+   ENTER_PASS_1,
+   ENTER_PASS_2
+}CHANGEPASS;
+uint8_t removeCardState = CHECK_CARD;
+uint8_t addCardState = CHECK_CARD;
+uint8_t changePassword = ENTER_PASS_1;
+uint8_t countCheck = 1;
+uint8_t allowAccess = 0;
+static uint8_t k = 0;
+
+/*
+  Hướng dẫn sử dụng chức năng:
+  Nhập đúng thẻ master, hoặc mật khẩu trong khoảng 5s sau đó nhấn các phím sẽ có các chức năng khác nhau như sau:
+    ****  thêm thẻ mới  
+    0000  xóa thẻ trong hệ thống
+    #### đổi thẻ master
+    8888 đổi mật khẩu
+  Nhấn phím # khi ở bất kì mode nào để trở về màn hình chính
+*/
+// Các hàm chính
+void checkRFID(void); // Hàm check thẻ RFID khi quét vào module MFRC522
+                      // Nếu thẻ hợp lệ sẽ mở cửa
+void removeCard(void); // Hàm xóa thẻ RFID đã thêm vào hệ thống
+void addCard(void);   // Hàm thêm thẻ mới vào hệ thống
+                      // Khi nhập master hoặc nhập đúng password, thẻ mới có thể thêm vào
+void insertCardMaster(void); // Hàm đổi thẻ master
+                             // Thẻ master chỉ có duy nhất 1 thẻ
+void changePasswordFunc(void); // Hàm đổi mật khẩu
+                               //  // Khi nhập master hoặc nhập đúng password, mật khẩu mới mới có thể đổi
+
+void setup()
+{
+  Serial.begin(9600);  
+  My_LCD.begin(16, 2);
+  SPI.begin(); 
+  mfrc522.PCD_Init();  
+ 
+  wdt_enable(WDTO_8S);
+  
+  customKeypad.begin();
+  pinMode(KHOA, OUTPUT);
+  pinMode(BUTTON, INPUT);
+  digitalWrite(KHOA, KHOA_OFF);
+  pinMode(COI, OUTPUT);
+  digitalWrite(COI, COI_OFF);
+  My_LCD.clear();
+
+  if(EEPROM.read(251) != 0)
+  {
+      for(uint8_t i = 0; i <= 250; i++)
+      { 
+           EEPROM.write( i , 0 );
+      }
+      EEPROM.write( 251 , 0 );
+
+      // Dia chi lưu password
+      EEPROM.write( 252 , 0 );
+      EEPROM.write( 253 , 0 );
+      EEPROM.write( 254 , 0 );
+  }
+  else
+  {
+      saveIDtoBUFF();  
+  }
+  savePASStoBUFF();
+  Serial.println("hello ae");
+}
+int countt = 0;
+void loop()
+{
+  wdt_reset();
+  checkButton();
+  checkRFID();
+  handle_button();
 }
 
-static void renderInputScreen() {
-    char hidden_pass[MAX_PASSWORD_LEN + 1] = {0};
-    for (uint8_t i = 0; i < sys_state.input_length; i++) {
-        hidden_pass[i] = '*';
+
+uint8_t currentSst=1,lastSst=1;
+void release_button()
+{
+    COI_beep();
+    countError=0;
+    digitalWrite(KHOA, KHOA_ON);
+    delay(3000);
+    digitalWrite(KHOA, KHOA_OFF );
+}
+
+void handle_button()
+{
+  static uint32_t t_debound_buton;
+  if(millis() - t_debound_buton >= 40)
+  {
+    t_debound_buton= millis();
+    currentSst = digitalRead(BUTTON);
+    if(currentSst==0)  // Giu tay
+    {
+        if(lastSst==1)
+        {
+          lastSst=currentSst;
+        }
+    } 
+    else   //Nha Tay
+    {
+        if(lastSst==0)
+        {
+          lastSst=currentSst;
+          release_button();
+        }     
     }
-    refreshDisplay("Nhap Mat Khau:", hidden_pass);
+  }
 }
 
-// HÀM TIỆN ÍCH (Không dùng delay block luồng)
-static void beep(uint8_t times) {
-    // Dùng vòng lặp siêu nhỏ không ảnh hưởng lớn đến luồng
-    for (uint8_t i = 0; i < times; i++) {
-        digitalWrite(BUZZER_PIN, HIGH);
-        delay(80); 
-        digitalWrite(BUZZER_PIN, LOW);
-        if (times > 1) delay(80);
-    }
-}
-
-static void unlockDoor() {
-    sys_state.is_door_unlocked = true;
-    sys_state.unlock_start_time = millis();
-    sys_state.wrong_attempts = 0; // Reset số lần sai
-    
-    digitalWrite(RELAY_PIN, HIGH); // Giật chốt XG07
-    refreshDisplay("THONG BAO", "XIN CHAO!");
-    beep(1);
-}
-
-static void triggerLockout() {
-    sys_state.is_locked_out = true;
-    sys_state.lockout_start_time = millis();
-    refreshDisplay("CANH BAO!", "KHOA 30S");
-    // Hú còi dài
-    digitalWrite(BUZZER_PIN, HIGH);
-    delay(1000); 
-    digitalWrite(BUZZER_PIN, LOW);
-}
-
-static void checkWrongAttempts() {
-    sys_state.wrong_attempts++;
-    sys_state.input_length = 0; // Xóa mật khẩu đang nhập
-    memset(sys_state.current_input, 0, sizeof(sys_state.current_input));
-    
-    refreshDisplay("LOI!", "SAI MA/THE");
-    beep(3);
-    
-    if (sys_state.wrong_attempts >= MAX_WRONG_ATTEMPTS) {
-        triggerLockout();
-    } else {
-        delay(1000); // Tạm dừng 1s để người dùng đọc thông báo lỗi
-        sys_state.update_display = true; // Yêu cầu vẽ lại màn hình chờ
-    }
-}
-
-// BLYNK IOT Mở cửa bằng mật khẩu từ xa
-// Nút nhấn mở cửa (Virtual Pin V0)
-BLYNK_WRITE(V0) {
-    if (param.asInt() == 1 && !sys_state.is_locked_out) {
-        unlockDoor();
-    }
-}
-
-// Terminal đổi mật khẩu (Virtual Pin V1)
-BLYNK_WRITE(V1) {
-    String new_pass = param.asStr();
-    if (new_pass.length() > 0 && new_pass.length() <= MAX_PASSWORD_LEN) {
-        sys_state.master_password = new_pass;
-        preferences.putString("pwd", new_pass);
-        Blynk.virtualWrite(V1, "Doi mat khau thanh cong!");
-    } else {
-        Blynk.virtualWrite(V1, "Loi: Mat khau 1-6 ky tu.");
-    }
-}
-
-// SETUP HỆ THỐNG
-void setup() {
-    // Cấu hình phần cứng
-    pinMode(RELAY_PIN, OUTPUT);
-    pinMode(BUZZER_PIN, OUTPUT);
-    digitalWrite(RELAY_PIN, LOW); // Đảm bảo chốt đang khóa
-    digitalWrite(BUZZER_PIN, LOW);
-
-    // Khởi tạo OLED
-    display.begin(OLED_I2C_ADDRESS, true);
-    refreshDisplay("He Thong", "Khoi dong...");
-
-    // Khởi tạo SPI & RFID
-    SPI.begin();
-    rfid.PCD_Init();
-
-    // Đọc mật khẩu từ EEPROM (Preferences)
-    preferences.begin("smartlock", false);
-    sys_state.master_password = preferences.getString("pwd", "123456");
-
-    // Kết nối Blynk & WiFi
-    refreshDisplay("WiFi", "Ket noi...");
-    Blynk.begin(BLYNK_AUTH_TOKEN, WIFI_SSID, WIFI_PASS);
-    
-    sys_state.update_display = true;
-    beep(2); // Báo hiệu sẵn sàng
-}
-
-// VÒNG LẶP CHÍNH
-void loop() {
-    Blynk.run(); // Duy trì kết nối IoT (Bắt buộc phải chạy liên tục)
-    uint32_t current_time = millis();
-
-    // XỬ LÝ TRẠNG THÁI PHẠT (ANTI-BRUTE FORCE)
-    if (sys_state.is_locked_out) {
-        if (current_time - sys_state.lockout_start_time >= LOCKOUT_TIME_MS) {
-            sys_state.is_locked_out = false;
-            sys_state.wrong_attempts = 0;
-            sys_state.update_display = true;
-        } else {
-            // Cập nhật đồng hồ đếm ngược mỗi giây
-            static uint32_t last_tick = 0;
-            if (current_time - last_tick >= 1000) {
-                last_tick = current_time;
-                uint8_t remain = (LOCKOUT_TIME_MS - (current_time - sys_state.lockout_start_time)) / 1000;
-                char buf[10];
-                sprintf(buf, "Cho %ds", remain);
-                refreshDisplay("DANG KHOA!", buf);
+void checkRFID()
+{
+    switch(modeRun)
+    {
+         case IDLE_MODE:
+            readRFIDinBUFFER();
+            break;   
+         case ADDCARD_MODE:
+            if( allowAccess == 1)
+                addCard();
+            else
+            {
+                My_LCD.setCursor(3, 0);
+                My_LCD.print("CANT ACCESS ");
+                My_LCD.setCursor(0, 1);
+                My_LCD.print("            ");
+                delay(1000);
+                modeRun = IDLE_MODE;
             }
-        }
-        return; // Chặn toàn bộ thao tác nhập liệu bên dưới
-    }
-
-    // XỬ LÝ TRẠNG THÁI MỞ CỬA (NON-BLOCKING RELAY)
-    if (sys_state.is_door_unlocked) {
-        if (current_time - sys_state.unlock_start_time >= UNLOCK_TIME_MS) {
-            digitalWrite(RELAY_PIN, LOW); // Nhả Relay để lò xo đóng chốt
-            sys_state.is_door_unlocked = false;
-            sys_state.update_display = true;
-        }
-        return; // Đang mở cửa thì không cần nhận thêm phím
-    }
-
-    // CẬP NHẬT MÀN HÌNH CHỜ
-    if (sys_state.update_display) {
-        if (sys_state.input_length == 0) {
-            refreshDisplay("Smart Lock", "Moi quet/nhap");
-        } else {
-            renderInputScreen();
-        }
-        sys_state.update_display = false;
-    }
-
-    // XỬ LÝ KEYPAD
-    char key = keypad.getKey();
-    if (key) {
-        beep(1);
-        if (key == '*') {
-            // Nút xóa lùi
-            if (sys_state.input_length > 0) {
-                sys_state.input_length--;
-                sys_state.current_input[sys_state.input_length] = '\0';
-                sys_state.update_display = true;
+            checkBackHome();
+            break;
+         case REMOVECARD_MODE:
+            if( allowAccess == 1)
+                removeCard();
+            else
+            {
+                My_LCD.setCursor(3, 0);
+                My_LCD.print("CANT ACCESS ");
+                My_LCD.setCursor(0, 1);
+                My_LCD.print("            ");
+                delay(1000);
+                modeRun = IDLE_MODE;
             }
-        } else if (key == '#') {
-            // Nút xác nhận
-            if (String(sys_state.current_input) == sys_state.master_password) {
-                unlockDoor();
-            } else {
-                checkWrongAttempts();
+            checkBackHome();
+            break;
+         case CHANGE_MASTER_CARD:
+            if( allowAccess == 1)
+                insertCardMaster(); 
+            else
+            {
+                My_LCD.setCursor(3, 0);
+                My_LCD.print("CANT ACCESS ");
+                My_LCD.setCursor(0, 1);
+                My_LCD.print("            ");
+                delay(1000);
+                modeRun = IDLE_MODE;
             }
-            // Reset mảng nhập
-            sys_state.input_length = 0;
-            memset(sys_state.current_input, 0, sizeof(sys_state.current_input));
-            sys_state.update_display = true;
-        } else {
-            // Nhập số 
-            if (sys_state.input_length < MAX_PASSWORD_LEN) {
-                sys_state.current_input[sys_state.input_length] = key;
-                sys_state.input_length++;
-                sys_state.current_input[sys_state.input_length] = '\0';
-                sys_state.update_display = true;
+            checkBackHome();  
+            break;
+         case CHANGE_PASSWORD:
+             if( allowAccess == 1)
+                changePasswordFunc();
+            else
+            {
+                My_LCD.setCursor(3, 0);
+                My_LCD.print("CANT ACCESS ");
+                My_LCD.setCursor(0, 1);
+                My_LCD.print("            ");
+                delay(1000);
+                modeRun = IDLE_MODE;
             }
-        }
+            checkBackHome();  
+            break;
+          case LOCK_1MIN:
+            My_LCD.setCursor(2, 0);
+            My_LCD.print("TRY AGAIN ");
+            My_LCD.setCursor(0, 1);
+            My_LCD.print("  IN 1 MINUTE");
+            for(int i = 60; i >=0; i --)
+            {
+                 wdt_reset();
+                 My_LCD.clear();
+                 My_LCD.setCursor(2, 0);
+                 My_LCD.print("TRY AGAIN ");
+                 My_LCD.setCursor(0, 1);
+                 My_LCD.print("  IN ");
+                 if( i > 50 ) analogWrite(COI, 500);
+                 else analogWrite(COI, 0);
+                 if( i >9)
+                 {
+                   My_LCD.setCursor(5, 1);
+                   My_LCD.print(i);
+                   My_LCD.setCursor(7, 1);
+                   My_LCD.print(" SECONDS");
+                 }
+                 else
+                 {
+                   My_LCD.setCursor(6, 1);
+                   My_LCD.print(i);
+                   My_LCD.setCursor(7, 1);
+                   My_LCD.print(" SECONDS");
+                 }               
+                 delay(1000);
+            }
+            countError=0;
+            modeRun = IDLE_MODE;
+            My_LCD.clear();
+            break;
     }
+}
 
-    // XỬ LÝ RFID
-    if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
-        String uid_str = "";
-        for (uint8_t i = 0; i < rfid.uid.size; i++) {
-            uid_str += String(rfid.uid.uidByte[i] < 0x10 ? "0" : "");
-            uid_str += String(rfid.uid.uidByte[i], HEX);
-        }
-        uid_str.toUpperCase();
-        rfid.PICC_HaltA(); // Tạm dừng thẻ
 
-        // Thay mã UID này bằng mã thẻ của bạn (Đọc qua Serial trước đó)
-        if (uid_str == "A1B2C3D4" || uid_str == "E5F6A7B8") {
-            unlockDoor();
-        } else {
-            checkWrongAttempts();
-        }
+void removeCard()
+{
+    uint8_t checkDup = 0;
+    switch(removeCardState)
+    {
+        case CHECK_CARD_RM:
+             countCheck = 1;
+             My_LCD.setCursor(1, 0);
+             My_LCD.print(" REMOVE CARD  ");
+             My_LCD.setCursor(1, 1);
+             My_LCD.print(" PLEASE INSERT  ");
+             if ( ! mfrc522.PICC_IsNewCardPresent()) 
+                  return;
+             if ( ! mfrc522.PICC_ReadCardSerial())
+                  return;
+             else
+                  COI_beep();
+             for (byte i = 0; i < mfrc522.uid.size; i++) {
+                  uidDecTemp = mfrc522.uid.uidByte[i];
+                  uidDec = uidDec*256+uidDecTemp;
+             } 
+             mfrc522.PICC_HaltA();
+             for(uint16_t i = 1; i < MAX_BUFF; i++)
+             {
+                  if(uidDec == ID_CARD_PASS[i])
+                  {
+                     checkDup = 1;
+                  }
+             }
+             if( checkDup == 0)
+             {
+                  My_LCD.setCursor(0, 0);
+                  My_LCD.print("  NOT EXIST   ");
+                  My_LCD.setCursor(0, 1);
+                  My_LCD.print("                ");
+                  uidDec = 0;
+                  delay(1000);
+                  My_LCD.clear();
+             }
+             else
+             {
+                  removeCardState = REMOVE_CARD_RM;
+             }
+            break;
+        case REMOVE_CARD_RM:
+           //  Serial.println("check remove");
+             if(ID_CARD_PASS[countCheck] == uidDec)
+             {
+                ID_CARD_PASS[countCheck] = 0  ;
+                My_LCD.setCursor(3, 0);
+                My_LCD.clear();
+                My_LCD.setCursor(1, 0);
+                My_LCD.print("WAITING... ");
+                delay(1000);
+                
+                clearIDinEEP(countCheck);
+                saveIDtoBUFF();
+                for(uint8_t i = 0; i < MAX_BUFF; i++)
+                {
+                  // Serial.println(ID_CARD_PASS[i]);
+                }
+                
+                My_LCD.clear();
+                My_LCD.print("REMOVE ");
+                My_LCD.setCursor(3, 1);
+                My_LCD.print("SUCCESSFUL ");
+                delay(2000);
+                
+  
+                My_LCD.clear();
+                uidDec = 0;
+                removeCardState = CHECK_CARD;
+                countCheck++;
+             }
+             else
+             {
+                countCheck++;
+                if(countCheck > MAX_BUFF)
+                {
+                     countCheck = 1;
+                }
+             }
+             break;
     }
+   
+}
+void addCard()
+{
+     uint8_t checkDup = 0;
+     switch(addCardState)
+     {
+          case  CHECK_CARD:
+             My_LCD.setCursor(3, 0);
+             My_LCD.print(" ADD CARD  ");
+             My_LCD.setCursor(1, 1);
+             My_LCD.print(" PLEASE INSERT  ");
+             if ( ! mfrc522.PICC_IsNewCardPresent()) 
+                  return;
+             if ( ! mfrc522.PICC_ReadCardSerial())
+                  return;
+             else
+                  COI_beep();
+             for (byte i = 0; i < mfrc522.uid.size; i++) {
+                  uidDecTemp = mfrc522.uid.uidByte[i];
+                  uidDec = uidDec*256+uidDecTemp;
+             } 
+             mfrc522.PICC_HaltA();
+             for(uint16_t i = 0; i < MAX_BUFF; i++)
+             {
+                  if(uidDec == ID_CARD_PASS[i])
+                  {
+                     checkDup = 1;
+                  }
+             }
+             if( checkDup == 1)
+             {
+                  My_LCD.setCursor(0, 0);
+                  My_LCD.print("  ALREADY EXIST ");
+                  My_LCD.setCursor(0, 1);
+                  My_LCD.print("                ");
+                  uidDec = 0;
+                  delay(1000);
+                  My_LCD.clear();
+             }
+             else
+             {
+                  addCardState = ADD_CARD;
+             }
+             break;
+        case  ADD_CARD:
+             if(ID_CARD_PASS[countCheck] == 0)
+             {
+                ID_CARD_PASS[countCheck] = uidDec  ;
+                My_LCD.clear();
+                My_LCD.setCursor(2, 0);
+                My_LCD.print("WAITING... ");
+                delay(1000);
+                saveIDtoEEP(ID_CARD_PASS[countCheck] , countCheck);
+                saveIDtoBUFF();
+                for(uint8_t i = 0; i < MAX_BUFF; i++)
+                {
+                  // Serial.println(ID_CARD_PASS[i]);
+                }
+                My_LCD.clear();
+                My_LCD.setCursor(3, 0);
+                My_LCD.print("ADD ");
+                My_LCD.setCursor(3, 1);
+                My_LCD.print("SUCCESSFUL ");
+                delay(2000);
+                My_LCD.clear();
+                
+                uidDec = 0;
+                addCardState = CHECK_CARD;
+                countCheck++;
+             }
+             else
+             {
+                countCheck++;
+                if(countCheck > MAX_BUFF)
+                {
+                    countCheck = 1;
+                    My_LCD.setCursor(0, 0);
+                    My_LCD.print("CANNOT INSERT ");
+                    My_LCD.setCursor(0, 1);
+                    My_LCD.print("FULL MEMORY    ");
+                    delay(2000);
+                    My_LCD.clear();
+                    addCardState = CHECK_CARD;
+                    modeRun = IDLE_MODE;
+                }
+             }
+             break;
+     }
+    
+}
+void insertCardMaster()
+{
+    My_LCD.setCursor(0, 0);
+    My_LCD.print(" CHANGE MASTER ");
+    My_LCD.setCursor(0, 1);
+    My_LCD.print(" PLEASE INSERT  ");
+    
+    if ( ! mfrc522.PICC_IsNewCardPresent()) 
+        return;
+    if ( ! mfrc522.PICC_ReadCardSerial())
+        return;
+    else
+        COI_beep();
+    for (byte i = 0; i < mfrc522.uid.size; i++) {
+        uidDecTemp = mfrc522.uid.uidByte[i];
+        uidDec = uidDec*256+uidDecTemp;
+    } 
+
+    mfrc522.PICC_HaltA();
+
+    if(uidDec != 0)
+    {
+      ID_CARD_PASS[0] = uidDec;
+      saveIDtoEEP(ID_CARD_PASS[0] , 0);
+      saveIDtoBUFF();
+      for(uint8_t i = 0; i < MAX_BUFF; i++)
+      {
+        // Serial.println(ID_CARD_PASS[i]);
+      }
+      My_LCD.clear();
+      My_LCD.setCursor(3, 0);
+      My_LCD.print("CHANGE ");
+      My_LCD.setCursor(3, 1);
+      My_LCD.print("SUCCESSFUL ");
+      delay(2000);
+      My_LCD.clear();
+      modeRun = IDLE_MODE; 
+    }
+}
+uint8_t readRFIDinBUFFER()
+{
+    uint8_t check_ID = 0;
+    
+    if ( ! mfrc522.PICC_IsNewCardPresent()) 
+        return;
+    if ( ! mfrc522.PICC_ReadCardSerial())
+        return;
+    else
+        COI_beep();
+    
+    for (byte i = 0; i < mfrc522.uid.size; i++) {
+        uidDecTemp = mfrc522.uid.uidByte[i];
+        uidDec = uidDec*256+uidDecTemp;
+    } 
+   
+    mfrc522.PICC_HaltA();
+    for(uint16_t i = 0; i < MAX_BUFF; i++)
+    {
+        if(uidDec == ID_CARD_PASS[i])
+        {
+           check_ID ++;  
+           if( uidDec == ID_CARD_PASS[0])
+           {
+                allowAccess = 1;
+           }
+        }     
+    }
+    if(check_ID > 0)
+    {
+        k=0;
+        My_LCD.setCursor(1, 0);
+        My_LCD.print("   WELCOME   ");
+        My_LCD.setCursor(3, 1);
+        My_LCD.print("VALID CARD");
+        modeRun = WAIT_CLOSE;      
+        timeMillisAUTO = millis();
+        digitalWrite(KHOA, KHOA_ON);
+        count = 0;
+        countError = 0;
+        delay(200);
+        return 1;
+    }
+    else
+    {
+         k=0;
+         My_LCD.setCursor(1, 0);
+         My_LCD.print("   WELCOME   ");
+         My_LCD.setCursor(2, 1);
+         My_LCD.print("INVALID CARD");
+         countError ++; 
+         if(  countError >= 5)
+                 modeRun = LOCK_1MIN;
+         delay(1000);
+         My_LCD.clear();  
+    }
+    
+    return 0;
+}
+void checkButton()
+{   
+
+  checkRFID();
+  switch(modeRun)
+  {
+    case IDLE_MODE:
+       allowAccess = 0;
+       digitalWrite(KHOA, KHOA_OFF);
+       My_LCD.setCursor(1, 0);
+       if( k == 0)
+       {
+          My_LCD.print("   WELCOME   ");
+          k = 1; 
+       }
+       customKeypad.tick();
+        while(customKeypad.available()){
+            e = customKeypad.read();
+            COI_beep();
+            if(e.bit.EVENT == KEY_JUST_RELEASED) 
+            {
+                if(count == 0) 
+                    My_LCD.clear();
+                if( (char)e.bit.KEY == '#' )
+                {
+                     count=0; 
+                     My_LCD.clear();
+                     modeRun = IDLE_MODE ;
+                     k= 0;
+                }
+                else
+                {
+                    k = 0;
+                    passwordEnter[count] = (char)e.bit.KEY;
+                    My_LCD.setCursor(count + 4 , 1);
+                    My_LCD.print('*');
+                    count++ ;
+                }
+            }  
+        }  
+        if(count > 5)
+        {
+            k = 0;
+            passwordEnter[6] = '\0';
+            My_LCD.setCursor(9 , 1);
+            My_LCD.print('*');
+            delay(50);
+          //  Serial.println(passwordEnter);
+            if(strcmp(passwordEnter,password) == 0)
+            {
+                allowAccess = 1;
+         //      My_LCD.clear(); 
+                My_LCD.setCursor(0, 0);
+                My_LCD.print("CORRECT PASSWORD");
+         //       My_LCD.setCursor(4, 1);
+         //       My_LCD.print("OPEN DOOR");
+                timeMillisAUTO = millis();
+                modeRun = WAIT_CLOSE; 
+            }
+            else
+            {
+                delay(100);
+                My_LCD.clear();
+                My_LCD.setCursor(1, 0);
+                My_LCD.print("WRONG PASSWORD");
+                My_LCD.setCursor(1, 1);
+                My_LCD.print(4-countError);
+                My_LCD.setCursor(3, 1);
+                My_LCD.print("TIMES LEFT");
+                delay(2000);
+                My_LCD.clear();  
+                countError ++;   
+                if(  countError >= 5)
+                    modeRun = LOCK_1MIN;
+            }
+            count = 0;
+        }
+      break;
+    case WAIT_CLOSE:
+       // auto lock door
+       k = 0;
+       countError=0;
+       digitalWrite(KHOA, KHOA_ON);
+       if(millis() - timeMillisAUTO > timeClose*1000)
+       {
+            timeMillisAUTO = millis();
+            
+            My_LCD.clear();
+            delay(10);
+            My_LCD.begin(16, 2);
+            delay(10);
+            count=0; 
+
+            mfrc522.PCD_Reset();
+            delay(10);
+            mfrc522.PCD_Init();  
+            delay(10);
+            modeRun = IDLE_MODE; 
+       }
+       
+       customKeypad.tick();
+       while(customKeypad.available()){
+            if(count == 0 ) 
+            {
+                 My_LCD.setCursor(0 , 1);
+                 My_LCD.print("                ");
+            }
+            e = customKeypad.read();
+            // đợi k cho về idle mode
+            timeMillisAUTO = millis();
+            COI_beep();
+            if(e.bit.EVENT == KEY_JUST_RELEASED) 
+            {
+                passwordCard[count] = (char)e.bit.KEY; 
+                My_LCD.setCursor(count + 5 , 1);
+                My_LCD.print((char)e.bit.KEY);
+                count++ ;
+            }
+       }
+       if(count > 3)
+       {    
+
+            My_LCD.setCursor(8 , 1);
+            My_LCD.print((char)e.bit.KEY);
+            delay(100);
+            
+            My_LCD.clear();
+            
+            if(strcmp(passwordCard, "####") == 0)
+            { 
+                 
+                 modeRun = CHANGE_MASTER_CARD;
+                 digitalWrite(KHOA, KHOA_OFF);
+            }
+            else if (strcmp(passwordCard, "****") == 0)
+            {
+                 modeRun = ADDCARD_MODE;
+                 digitalWrite(KHOA, KHOA_OFF);
+            }
+            else if (strcmp(passwordCard, "0000") == 0)
+            {
+                 modeRun = REMOVECARD_MODE;
+                 digitalWrite(KHOA, KHOA_OFF);
+            }
+            else if (strcmp(passwordCard, "8888") == 0)
+            {
+                modeRun = CHANGE_PASSWORD;
+                digitalWrite(KHOA, KHOA_OFF);
+            }
+            else 
+            {
+                 modeRun = IDLE_MODE;
+            }
+            count = 0;
+       }
+      break;
+    case ADDCARD_MODE:
+       k = 0;
+      break;
+    case REMOVECARD_MODE:   
+       k = 0;
+      break;
+    case CHANGE_MASTER_CARD:
+       k = 0;
+      break;
+    case CHANGE_PASSWORD:
+       k = 0;
+       break;
+       
+  }
+}
+void autoReturn()
+{
+   if(millis() - timeMillisAUTO > timeClose*1000)
+   {
+        timeMillisAUTO = millis();
+        modeRun = IDLE_MODE; 
+   }
+}
+void changePasswordFunc()
+{
+    switch(changePassword)
+    {
+          case    ENTER_PASS_1:
+               My_LCD.setCursor(0, 0);
+               My_LCD.print(" ENTER NEW PASS ");
+               customKeypad.tick();
+               while(customKeypad.available()){
+                    if(count == 0) 
+                    {
+                         My_LCD.setCursor(0 , 1);
+                         My_LCD.print("                ");
+                    }
+                    e = customKeypad.read();
+                    // đợi k cho về idle mode
+                    timeMillisAUTO = millis();
+                    COI_beep();
+                    if(e.bit.EVENT == KEY_JUST_RELEASED) 
+                    {
+                        if( (char)e.bit.KEY == '#' )
+                        {
+                              count=0; 
+                              My_LCD.clear();
+                              modeRun = IDLE_MODE ;
+                              
+                        }
+                        else
+                        {
+                            passwordChange1[count] = (char)e.bit.KEY; 
+                            My_LCD.setCursor(count + 5 , 1);
+                            My_LCD.print((char)e.bit.KEY);
+                            count++ ;
+                        }
+                    }
+               }
+               if(count > 5)
+               {
+                    delay(200);
+                    changePassword = ENTER_PASS_2;
+                    count  = 0;
+                    My_LCD.clear();
+               }
+              break;
+          case    ENTER_PASS_2:
+             My_LCD.setCursor(0, 0);
+             My_LCD.print("ENTER PASS AGAIN");
+             customKeypad.tick();
+             while(customKeypad.available()){
+                  if(count == 0) 
+                  {
+                       My_LCD.setCursor(0 , 1);
+                       My_LCD.print("                ");
+                  }
+                  e = customKeypad.read();
+                  // đợi k cho về idle mode
+                  timeMillisAUTO = millis();
+                  COI_beep();
+                  if(e.bit.EVENT == KEY_JUST_RELEASED) 
+                  {
+                      if( (char)e.bit.KEY == '#' )
+                      {
+                              count=0; 
+                              My_LCD.clear();
+                              modeRun = IDLE_MODE ;
+                      }
+                      else
+                      {
+                            passwordChange2[count] = (char)e.bit.KEY; 
+                            My_LCD.setCursor(count + 5 , 1);
+                            My_LCD.print((char)e.bit.KEY);
+                            count++ ;
+                      }
+                  }
+             }
+             if(count > 5)
+             {
+                 //  Serial.println(passwordChange2);
+                 //  Serial.println("sfdfsdfsdfsdfsdf");
+            //      My_LCD.setCursor(count + 6 , 1);
+            ////      My_LCD.print((char)e.bit.KEY);
+            //      My_LCD.setCursor(count + 7 , 1);
+             //     My_LCD.print("   ");
+                  delay(50);
+                  
+                  if(strcmp(passwordChange1, passwordChange2) == 0)
+                  {      
+                        passwordChange2[6] = '\0';
+                        memcpy (password, passwordChange1, 7);
+                    //    Serial.println(password);
+                        // luu vao flash
+                        uint32_t valueCV =convertPassToNumber();
+                        savePWtoEEP(valueCV);
+                        delay(100);
+                        savePASStoBUFF(); 
+                     //  Serial.println(valueCV);   
+                     //  Serial.println("value: ");
+                     //  Serial.println( EEPROM.read(252));
+                     //  Serial.println( EEPROM.read(253));
+                     //  Serial.println( EEPROM.read(254));
+                     //  Serial.println(password);
+                        
+                        My_LCD.clear();
+                        My_LCD.setCursor(3, 0);
+                        My_LCD.print("CHANGE ");
+                        My_LCD.setCursor(3, 1);
+                        My_LCD.print("SUCCESSFUL ");
+                        delay(2000);
+                        changePassword = ENTER_PASS_1;
+                        modeRun = IDLE_MODE ;
+                        My_LCD.clear();
+                  }
+                  else
+                  {
+                        My_LCD.clear();
+                        My_LCD.setCursor(3, 0);        
+                        My_LCD.print("ERROR ");
+                        My_LCD.setCursor(3, 1);
+                        My_LCD.print("NOT CORRECT");
+                        delay(1000);
+                        My_LCD.clear();
+                        changePassword = ENTER_PASS_1;
+                  }
+                  count = 0;
+             }
+             break;
+    }     
+}
+void COI_beep()
+{
+  analogWrite(COI, 150);
+  delay(50);
+  analogWrite(COI, 0);
+  delay(50);
+}
+
+void checkBackHome()
+{
+    customKeypad.tick();
+    while(customKeypad.available()){
+          e = customKeypad.read();
+            COI_beep();
+            if(e.bit.EVENT == KEY_JUST_RELEASED) 
+            {
+                if((char)e.bit.KEY == '#')
+                {
+                    modeRun = IDLE_MODE;
+                    My_LCD.clear();
+                    k = 0;
+                    My_LCD.setCursor(1, 0);
+                    My_LCD.print("   WELCOME   ");
+                }
+            }
+    }
+}
+
+
+void saveIDtoEEP(uint32_t valueID, uint8_t positionID)
+{
+    uint8_t a,b,c,d,e;
+    e = valueID % 100;
+    valueID /= 100;
+    d = valueID % 100;
+    valueID /= 100;
+    c = valueID % 100;
+    valueID /= 100;
+    b = valueID % 100;
+    valueID /= 100;
+    a = valueID;
+    EEPROM.write(positionID*5    , e);
+    EEPROM.write(positionID*5 + 1, d);
+    EEPROM.write(positionID*5 + 2, c);
+    EEPROM.write(positionID*5 + 3, b);
+    EEPROM.write(positionID*5 + 4, a);  
+
+
+}
+
+void saveIDtoBUFF()
+{
+    // Dia chi lưu thẻ RFID, mỗi 5 ô nhớ lưu 1 ID CARD
+    // Ví dụ thẻ có ID : 1234567891
+    // EEPROM 0 : 91
+    // EEPROM 1 : 78
+    // EEPROM 2 : 56
+    // EEPROM 3 : 34
+    // EEPROM 4 : 12
+   uint32_t a,b,c,d,e;
+   for(uint8_t i =0; i < MAX_BUFF; i++)
+   { 
+      e = EEPROM.read(i*5    );
+      d = EEPROM.read(i*5 + 1);
+      c = EEPROM.read(i*5 + 2);
+      b = EEPROM.read(i*5 + 3);
+      a = EEPROM.read(i*5 + 4);  
+      ID_CARD_PASS[i] = (a/10)*1000000000 + (a%10)*100000000 + (b/10)*10000000 + (b%10)*1000000 +(c/10)*100000 + (c%10)*10000 + (d/10)*1000 + (d%10)*100 + e%10 + (e/10)*10;
+   }
+}
+
+void clearIDinEEP(uint8_t positionID )
+{
+    EEPROM.write(positionID*5    , 0);
+    EEPROM.write(positionID*5 + 1, 0);
+    EEPROM.write(positionID*5 + 2, 0);
+    EEPROM.write(positionID*5 + 3, 0);
+    EEPROM.write(positionID*5 + 4, 0);  
+}
+
+void savePWtoEEP(uint32_t valuePASS)
+{
+    uint32_t c,d,e;
+    e = valuePASS % 100;
+    valuePASS /= 100;
+    d = valuePASS % 100;
+    valuePASS /= 100;
+    c = valuePASS % 100;
+
+    EEPROM.write(252, e);
+    EEPROM.write(253, d);
+    EEPROM.write(254, c);
+  //  Serial.println( e);
+  //  Serial.println( d);
+  //  Serial.println( c);
+}
+
+void savePASStoBUFF()
+{
+    uint32_t c,d,e;
+    e = EEPROM.read(252);
+    d = EEPROM.read(253);
+    c = EEPROM.read(254);
+    password[5] =  (char) (e %10 + 48) ;
+    password[4] =  (char) (e /10 + 48 ) ;
+    password[3] =  (char) (d %10 + 48 ) ;
+    password[2] =  (char) (d /10 + 48 ) ;
+    password[1] =  (char) (c %10 + 48 ) ;
+    password[0] =  (char) (c /10 + 48 ) ;  
+}
+uint32_t convertPassToNumber()
+{
+     uint32_t valuee = ((uint32_t)password[5] - 48) + ((uint32_t)password[4]-48)*10 +
+    ((uint32_t)password[3]-48)*100 + ((uint32_t)password[2]-48)*1000 +
+    ((uint32_t)password[1]-48)*10000 + ((uint32_t)password[0] - 48)*100000;
+    return valuee;
 }
